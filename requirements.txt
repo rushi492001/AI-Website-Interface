@@ -1,3 +1,3 @@
 streamlit
-# cx-Oracle  # Requires Oracle Instant Client installation
+cx-Oracle  # Requires Oracle Instant Client installation
 openai
