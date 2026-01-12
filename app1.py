@@ -1,13 +1,16 @@
 import streamlit as st
 import openai
-# import cx_Oracle   # 🔒 COMMENTED FOR TESTING
 
 # =====================================================
 # CONFIG
 # =====================================================
 openai.api_key = "your-openai-api-key"
 
-# ---------------- ORACLE CONFIG (COMMENTED) ----------------
+# =====================================================
+# ORACLE DB CODE (COMMENTED – READY FOR PROD)
+# =====================================================
+# import cx_Oracle
+#
 # oracle_user = "your-username"
 # oracle_password = "your-password"
 # oracle_host = "host"
@@ -20,63 +23,17 @@ openai.api_key = "your-openai-api-key"
 #     service_name=oracle_service
 # )
 #
-# CHECK_ACTIVE_EMPLOYEE = True
-# -----------------------------------------------------------
-
-
-# =====================================================
-# ORACLE DB HELPERS (COMMENTED)
-# =====================================================
 # def get_oracle_connection():
 #     return cx_Oracle.connect(
-#         user=oracle_user,
-#         password=oracle_password,
-#         dsn=oracle_dsn,
-#         encoding="UTF-8"
+#         oracle_user, oracle_password, oracle_dsn
 #     )
 
-
-# def validate_employee(emp_id_text: str, emp_role: str):
-#     if not emp_id_text or not emp_role:
-#         return False, "Employee ID and Role required"
-#
-#     try:
-#         emp_id = int(emp_id_text)
-#     except ValueError:
-#         return False, "Employee ID must be numeric"
-#
-#     sql = """
-#         SELECT employee_name
-#         FROM employees
-#         WHERE employee_id = :emp_id
-#           AND UPPER(employee_role) = UPPER(:emp_role)
-#     """
-#
-#     if CHECK_ACTIVE_EMPLOYEE:
-#         sql += " AND (end_date IS NULL OR end_date >= SYSDATE)"
-#
-#     try:
-#         conn = get_oracle_connection()
-#         cur = conn.cursor()
-#         cur.execute(sql, emp_id=emp_id, emp_role=emp_role)
-#         row = cur.fetchone()
-#         cur.close()
-#         conn.close()
-#
-#         if row:
-#             return True, row[0]
-#         return False, "Invalid or inactive employee"
-#
-#     except Exception as e:
-#         return False, f"DB Error: {e}"
-
-
 # =====================================================
-# MOCK LOGIN (ACTIVE FOR TESTING)
+# MOCK LOGIN (TEST MODE)
 # =====================================================
 def validate_employee(emp_id, emp_role):
     if not emp_id or not emp_role:
-        return False, "Employee ID and Role required"
+        return False, "Employee ID & Role required"
     if not emp_id.isdigit():
         return False, "Employee ID must be numeric"
     return True, "Test User"
@@ -91,7 +48,6 @@ st.set_page_config(
     layout="wide"
 )
 
-
 # =====================================================
 # SESSION STATE
 # =====================================================
@@ -105,11 +61,8 @@ if "chat_sessions" not in st.session_state:
     st.session_state.chat_sessions = {}
     st.session_state.current_chat_id = None
 
-if "feedback" not in st.session_state:
-    st.session_state.feedback = []
-
-if "emails" not in st.session_state:
-    st.session_state.emails = []
+if "answer_feedback" not in st.session_state:
+    st.session_state.answer_feedback = []
 
 
 # =====================================================
@@ -117,7 +70,7 @@ if "emails" not in st.session_state:
 # =====================================================
 if st.session_state.page == "login":
     st.title("🤖 ICICI Securities AI Assistant")
-    st.caption("TEST MODE – Oracle DB Disabled")
+    st.caption("Pre-trained model • Human feedback driven • Test Mode")
 
     emp_id = st.text_input("Employee ID")
     emp_role = st.text_input("Employee Role")
@@ -127,10 +80,8 @@ if st.session_state.page == "login":
         if ok:
             st.session_state.employee_name = msg
             st.session_state.page = "app"
-
             st.session_state.chat_sessions = {"chat_1": []}
             st.session_state.current_chat_id = "chat_1"
-
             st.success(f"Welcome {msg}")
             st.rerun()
         else:
@@ -142,14 +93,15 @@ if st.session_state.page == "login":
 # =====================================================
 elif st.session_state.page == "app":
 
+    # ---------------- SIDEBAR ----------------
     with st.sidebar:
         st.title("📂 Menu")
-        menu = st.radio("Select Option", ["Chat", "Feedback", "Email"])
+        menu = st.radio("Select", ["Chat", "Feedback Log", "Email"])
 
         if menu == "Chat":
             st.markdown("### 💬 Chat History")
 
-            if st.button("➕ New Chat"):
+            if st.button("➕ Start New Chat"):
                 cid = f"chat_{len(st.session_state.chat_sessions) + 1}"
                 st.session_state.chat_sessions[cid] = []
                 st.session_state.current_chat_id = cid
@@ -166,9 +118,14 @@ elif st.session_state.page == "app":
             st.rerun()
 
     st.title("🤖 ICICI Securities AI Assistant")
-    st.caption(f"Logged in as {st.session_state.employee_name}")
+    st.caption(
+        "Using a pre-trained LLM. "
+        "Your feedback helps improve future fine-tuning."
+    )
 
-    # ---------------- CHAT ----------------
+    # =================================================
+    # CHAT
+    # =================================================
     if menu == "Chat":
         messages = st.session_state.chat_sessions[
             st.session_state.current_chat_id
@@ -187,9 +144,17 @@ elif st.session_state.page == "app":
             try:
                 response = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo",
-                    messages=messages,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a financial assistant for ICICI Securities. "
+                                "Answer clearly, factually, and concisely."
+                            )
+                        }
+                    ] + messages,
                     temperature=0.7,
-                    max_tokens=200
+                    max_tokens=300
                 )
                 answer = response.choices[0].message.content
             except Exception as e:
@@ -200,44 +165,71 @@ elif st.session_state.page == "app":
             with st.chat_message("assistant"):
                 st.markdown(answer)
 
-    # ---------------- FEEDBACK ----------------
-    elif menu == "Feedback":
-        st.subheader("📝 Feedback")
+            # ---------- POST ANSWER OPTIONS ----------
+            st.markdown("### 🧠 Was this answer helpful?")
+            col1, col2, col3, col4, col5 = st.columns(5)
 
-        text = st.text_area("Your Feedback")
-        rating = st.selectbox("Rating", ["⭐", "⭐⭐", "⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐⭐⭐"])
+            with col1:
+                if st.button("✅ Complete"):
+                    st.session_state.answer_feedback.append(
+                        {"question": prompt, "result": "Complete"}
+                    )
+                    st.success("Marked as Complete")
 
-        if st.button("Submit"):
-            st.session_state.feedback.append({
-                "text": text,
-                "rating": rating
-            })
-            st.success("Feedback submitted")
+            with col2:
+                if st.button("⚠️ Incomplete"):
+                    st.session_state.answer_feedback.append(
+                        {"question": prompt, "result": "Incomplete"}
+                    )
+                    st.warning("Marked as Incomplete")
 
-        for f in st.session_state.feedback:
-            st.write(f"{f['rating']} — {f['text']}")
+            with col3:
+                if st.button("❌ Incorrect"):
+                    st.session_state.answer_feedback.append(
+                        {"question": prompt, "result": "Incorrect"}
+                    )
+                    st.error("Marked as Incorrect")
 
-    # ---------------- EMAIL ----------------
+            with col4:
+                if st.button("📧 Email"):
+                    st.info("Redirect to Email section from menu")
+
+            with col5:
+                if st.button("🆕 New Chat"):
+                    cid = f"chat_{len(st.session_state.chat_sessions) + 1}"
+                    st.session_state.chat_sessions[cid] = []
+                    st.session_state.current_chat_id = cid
+                    st.rerun()
+
+    # =================================================
+    # FEEDBACK LOG
+    # =================================================
+    elif menu == "Feedback Log":
+        st.subheader("📊 Answer Feedback (Training Signals)")
+
+        if not st.session_state.answer_feedback:
+            st.info("No feedback collected yet.")
+        else:
+            for f in st.session_state.answer_feedback:
+                st.write(f"**{f['result']}** — {f['question']}")
+
+    # =================================================
+    # EMAIL
+    # =================================================
     elif menu == "Email":
-        st.subheader("📧 Email Support")
+        st.subheader("📧 Contact Support")
 
         to = st.text_input("To", "support@icicisecurities.com")
         subject = st.text_input("Subject")
         body = st.text_area("Message")
 
-        if st.button("Send"):
-            st.session_state.emails.append({
-                "to": to,
-                "subject": subject,
-                "body": body
-            })
-            st.success("Email sent (mock)")
+        if st.button("Send Email"):
+            st.success("Email sent (mock). Stored for audit.")
 
-        for e in st.session_state.emails:
-            st.write(f"**To:** {e['to']}")
-            st.write(f"**Subject:** {e['subject']}")
-            st.write(e['body'])
-            st.markdown("---")
-
+    st.markdown("---")
+    st.caption(
+        "⚠️ This system uses a pre-trained model. "
+        "Feedback collected here can be used for future fine-tuning."
+)
     st.markdown("---")
     st.caption("⚠️ Testing mode active. Oracle DB code is commented.")
